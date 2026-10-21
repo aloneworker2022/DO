@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>NAS Shorts</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #000; color: #fff; overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", sans-serif; }
+  #feed { height: 100dvh; overflow-y: scroll; scroll-snap-type: y mandatory;
+    overscroll-behavior: contain; scrollbar-width: none; }
+  #feed::-webkit-scrollbar { display: none; }
+  .slide { position: relative; height: 100dvh; scroll-snap-align: start; scroll-snap-stop: always;
+    display: flex; align-items: center; justify-content: center; background: #000; }
+  .slide video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+  .info { position: absolute; left: 16px; right: 72px; bottom: calc(28px + env(safe-area-inset-bottom));
+    text-shadow: 0 1px 3px rgba(0,0,0,.8); pointer-events: none; }
+  .info .name { font-weight: 600; font-size: 16px; word-break: break-all; }
+  .info .folder { font-size: 13px; opacity: .8; margin-top: 4px; }
+  .progress { position: absolute; left: 0; right: 0; bottom: env(safe-area-inset-bottom); height: 18px;
+    display: flex; align-items: flex-end; cursor: pointer; }
+  .progress div { height: 3px; width: 0; background: #fff; }
+  .paused-icon { position: absolute; font-size: 72px; opacity: .7; pointer-events: none; display: none; }
+  .slide.paused .paused-icon { display: block; }
+  #bar { position: fixed; top: env(safe-area-inset-top); left: 0; right: 0; display: flex; gap: 8px;
+    padding: 12px 16px; z-index: 10; background: linear-gradient(rgba(0,0,0,.6), transparent); }
+  #bar select { flex: 1; min-width: 0; background: rgba(255,255,255,.15); color: #fff; border: 0;
+    border-radius: 8px; padding: 8px; font-size: 14px; }
+  #bar option { color: #000; }
+  #side { position: fixed; right: 12px; bottom: calc(90px + env(safe-area-inset-bottom)); z-index: 10;
+    display: flex; flex-direction: column; gap: 14px; }
+  #side button { width: 48px; height: 48px; border-radius: 50%; border: 0; font-size: 22px;
+    background: rgba(255,255,255,.18); color: #fff; }
+  #empty { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    text-align: center; padding: 24px; opacity: .8; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <select id="order">
+    <option value="shuffle">🔀 隨機</option>
+    <option value="newest">🆕 最新</option>
+    <option value="oldest">📅 最舊</option>
+  </select>
+  <select id="folder"><option value="">📁 全部資料夾</option></select>
+</div>
+<div id="feed"></div>
+<div id="side">
+  <button id="mute" title="聲音">🔇</button>
+  <button id="download" title="下載">⬇️</button>
+</div>
+<div id="empty">找不到影片。<br>請確認 VIDEO_DIR 裡有 mp4 / mov / webm 檔案。</div>
+
+<script>
+const feed = document.getElementById('feed');
+const orderSel = document.getElementById('order');
+const folderSel = document.getElementById('folder');
+const muteBtn = document.getElementById('mute');
+let videos = [];
+let current = -1;
+let muted = true;
+
+// A small pool of <video> elements is reused across slides: it keeps memory low on
+// phones, and once a pool element is unmuted by a tap iOS lets it keep playing with sound.
+const POOL = 3;
+const pool = Array.from({ length: POOL }, () => {
+  const v = document.createElement('video');
+  v.playsInline = true;
+  v.loop = true;
+  v.preload = 'auto';
+  v.muted = true;
+  v.addEventListener('timeupdate', () => {
+    const bar = v.parentElement && v.parentElement.querySelector('.progress div');
+    if (bar && v.duration) bar.style.width = (v.currentTime / v.duration * 100) + '%';
+  });
+  return v;
+});
+
+const videoUrl = p => '/video/' + p.split('/').map(encodeURIComponent).join('/');
+
+function makeSlide(item, i) {
+  const s = document.createElement('section');
+  s.className = 'slide';
+  s.dataset.index = i;
+  s.innerHTML = '<div class="paused-icon">▶</div><div class="info"><div class="name"></div>' +
+    '<div class="folder"></div></div><div class="progress"><div></div></div>';
+  s.querySelector('.name').textContent = item.name;
+  s.querySelector('.folder').textContent = item.folder ? '📁 ' + item.folder : '';
+  s.addEventListener('click', e => {
+    const v = s.querySelector('video');
+    if (!v) return;
+    if (e.target.closest('.progress')) {
+      const r = s.getBoundingClientRect();
+      if (v.duration) v.currentTime = (e.clientX - r.left) / r.width * v.duration;
+      return;
+    }
+    if (v.paused) { v.play(); s.classList.remove('paused'); }
+    else { v.pause(); s.classList.add('paused'); }
+  });
+  return s;
+}
+
+function attach(i) {
+  const slide = feed.children[i];
+  if (!slide) return;
+  const v = pool[i % POOL];
+  if (v.parentElement !== slide) {
+    v.pause();
+    slide.prepend(v);
+    v.src = videoUrl(videos[i].path);
+    slide.querySelector('.progress div').style.width = '0';
+  }
+}
+
+function activate(i) {
+  if (i === current || i < 0 || i >= videos.length) return;
+  current = i;
+  for (let j = i - 1; j <= i + 1; j++) attach(j);
+  pool.forEach(v => { if (v !== pool[i % POOL]) v.pause(); });
+  const v = pool[i % POOL];
+  const slide = feed.children[i];
+  slide.classList.remove('paused');
+  v.currentTime = 0;
+  v.muted = muted;
+  v.play().catch(() => {
+    // Autoplay with sound was refused; fall back to muted playback.
+    muted = true; v.muted = true; updateMute(); v.play().catch(() => slide.classList.add('paused'));
+  });
+}
+
+function updateMute() { muteBtn.textContent = muted ? '🔇' : '🔊'; }
+
+muteBtn.addEventListener('click', () => {
+  muted = !muted;
+  pool.forEach(v => { v.muted = muted; });
+  const v = pool[current % POOL];
+  if (v && v.paused) v.play();
+  updateMute();
+});
+
+document.getElementById('download').addEventListener('click', () => {
+  if (current < 0) return;
+  const a = document.createElement('a');
+  a.href = videoUrl(videos[current].path);
+  a.download = videos[current].path.split('/').pop();
+  a.click();
+});
+
+let scrollTimer;
+feed.addEventListener('scroll', () => {
+  clearTimeout(scrollTimer);
+  scrollTimer = setTimeout(() => activate(Math.round(feed.scrollTop / feed.clientHeight)), 80);
+});
+
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT') return;
+  if (e.key === 'ArrowDown' || e.key === 'j') feed.scrollBy({ top: feed.clientHeight, behavior: 'smooth' });
+  else if (e.key === 'ArrowUp' || e.key === 'k') feed.scrollBy({ top: -feed.clientHeight, behavior: 'smooth' });
+  else if (e.key === ' ') { e.preventDefault(); feed.children[current] && feed.children[current].click(); }
+  else if (e.key === 'm') muteBtn.click();
+});
+
+async function load() {
+  const params = new URLSearchParams({ order: orderSel.value, folder: folderSel.value });
+  const res = await fetch('/api/videos?' + params);
+  const data = await res.json();
+  videos = data.videos;
+  if (folderSel.options.length === 1) {
+    data.folders.forEach(f => folderSel.add(new Option('📁 ' + f, f)));
+  }
+  pool.forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); });
+  feed.replaceChildren(...videos.map(makeSlide));
+  document.getElementById('empty').style.display = videos.length ? 'none' : 'flex';
+  current = -1;
+  feed.scrollTop = 0;
+  activate(0);
+}
+
+orderSel.addEventListener('change', () => {
+  try { localStorage.setItem('shorts-order', orderSel.value); } catch (e) {}
+  load();
+});
+folderSel.addEventListener('change', load);
+try { orderSel.value = localStorage.getItem('shorts-order') || 'shuffle'; } catch (e) {}
+load();
+</script>
+</body>
+</html>

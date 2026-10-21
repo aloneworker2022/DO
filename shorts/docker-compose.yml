@@ -1,0 +1,14 @@
+services:
+  nas-shorts:
+    build: .
+    container_name: nas-shorts
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    volumes:
+      # 左邊改成你 NAS 上放影片的資料夾，唯讀掛載
+      - /volume1/video:/videos:ro
+    environment:
+      # 想從外網連的話建議設定帳密
+      AUTH_USER: ""
+      AUTH_PASS: ""
