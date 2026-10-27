@@ -10,7 +10,17 @@
 - 支援 HTTP Range，拖曳進度、iPhone Safari 都能順暢播放
 - 只用 Python 標準函式庫，DS723+ 上跑起來幾乎不吃資源
 
-## 在 DS723+ 上安裝（Container Manager）
+## 推薦：自動更新版（不用上傳檔案）
+
+1. Container Manager →「專案」→「新增」，路徑選一個空資料夾（例如 `docker/nas-shorts`），
+   來源選「建立 docker-compose.yml」。
+2. 把 [`docker-compose.nas.yml`](docker-compose.nas.yml) 的內容整份貼上，只改影片路徑那一行。
+3. 完成後打開 `http://NAS的IP:8090`。
+
+每次容器啟動都會從 GitHub 抓最新版，**要更新只要在專案上按「重新啟動」**。
+抓不到（例如 NAS 暫時沒網路）時會繼續用上次下載的版本。
+
+## 在 DS723+ 上安裝（Container Manager，手動上傳檔案）
 
 1. 套件中心安裝 **Container Manager**。
 2. 把這個 `shorts` 資料夾複製到 NAS，例如 `/volume1/docker/nas-shorts`。

@@ -1,0 +1,30 @@
+# 自動更新版：不用上傳任何檔案，每次啟動容器都會從 GitHub 抓最新的程式。
+# 在 Container Manager「專案 → 新增 → 建立 docker-compose.yml」貼上這整份即可。
+services:
+  nas-shorts:
+    image: python:3.12-alpine
+    container_name: nas-shorts
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    volumes:
+      # 左邊改成你 NAS 上放影片的資料夾，唯讀掛載
+      - /volume1/video:/videos:ro
+    environment:
+      REPO: https://github.com/aloneworker2022/DO.git
+      BRANCH: ccr-58019685-8q0pqc
+      # 想從外網連的話建議設定帳密
+      AUTH_USER: ""
+      AUTH_PASS: ""
+    command:
+      - sh
+      - -c
+      - |
+        apk add --no-cache git > /dev/null 2>&1
+        if [ -d /src/.git ]; then
+          git -C /src fetch --depth 1 origin "$$BRANCH" && git -C /src reset --hard FETCH_HEAD \
+            || echo "更新失敗，使用上次下載的版本"
+        else
+          git clone --depth 1 -b "$$BRANCH" "$$REPO" /src || exit 1
+        fi
+        exec python /src/shorts/server.py
