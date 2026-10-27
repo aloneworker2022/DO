@@ -34,7 +34,7 @@
    - iPhone：Safari「分享」→「加入主畫面」，就會像 App 一樣全螢幕開啟。
 
 不想用 Docker 也可以：DSM 上只要有 Python 3，直接
-`VIDEO_DIR=/volume1 SETTINGS_FILE=./config/settings.json PORT=8090 python3 server.py`。
+`VIDEO_DIR=/volume1 SETTINGS_FILE=./config/settings.json LIKES_FILE=./config/likes.json PORT=8090 python3 server.py`。
 
 ## 設定
 
