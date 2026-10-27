@@ -11,6 +11,7 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; height: 100%; background: #000; color: #fff; overflow: hidden;
     font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", sans-serif; }
+  button { font: inherit; color: inherit; cursor: pointer; }
   #feed { height: 100dvh; overflow-y: scroll; scroll-snap-type: y mandatory;
     overscroll-behavior: contain; scrollbar-width: none; }
   #feed::-webkit-scrollbar { display: none; }
@@ -26,39 +27,89 @@
   .progress div { height: 3px; width: 0; background: #fff; }
   .paused-icon { position: absolute; font-size: 72px; opacity: .7; pointer-events: none; display: none; }
   .slide.paused .paused-icon { display: block; }
-  #bar { position: fixed; top: env(safe-area-inset-top); left: 0; right: 0; display: flex; gap: 8px;
-    padding: 12px 16px; z-index: 10; background: linear-gradient(rgba(0,0,0,.6), transparent); }
-  #bar select { flex: 1; min-width: 0; background: rgba(255,255,255,.15); color: #fff; border: 0;
-    border-radius: 8px; padding: 8px; font-size: 14px; }
-  #bar option { color: #000; }
+  #menu { position: fixed; top: calc(12px + env(safe-area-inset-top)); right: 12px; z-index: 10;
+    width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(0,0,0,.35);
+    font-size: 24px; line-height: 44px; }
   #side { position: fixed; right: 12px; bottom: calc(90px + env(safe-area-inset-bottom)); z-index: 10;
     display: flex; flex-direction: column; gap: 14px; }
   #side button { width: 48px; height: 48px; border-radius: 50%; border: 0; font-size: 22px;
-    background: rgba(255,255,255,.18); color: #fff; }
+    background: rgba(255,255,255,.18); }
   #empty { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-    text-align: center; padding: 24px; opacity: .8; }
+    text-align: center; padding: 24px; opacity: .8; line-height: 1.6; }
+
+  #backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.5);
+    opacity: 0; pointer-events: none; transition: opacity .2s; }
+  #drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 21; width: min(360px, 88vw);
+    background: #161616; transform: translateX(100%); transition: transform .25s;
+    display: flex; flex-direction: column; padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom); }
+  body.drawer-open #backdrop { opacity: 1; pointer-events: auto; }
+  body.drawer-open #drawer { transform: none; }
+  #drawer header { display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid #2a2a2a; font-size: 18px; font-weight: 600; }
+  #drawer header button { border: 0; background: none; font-size: 22px; padding: 4px 8px; }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 8px 16px 16px; }
+  .drawer-body h3 { font-size: 13px; font-weight: 600; color: #9a9a9a; margin: 18px 0 8px; }
+  .hint { font-size: 13px; color: #8a8a8a; margin: 6px 0; line-height: 1.5; }
+  #order { width: 100%; padding: 10px; border-radius: 8px; border: 0; background: #262626;
+    color: #fff; font-size: 15px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 6px 6px 12px;
+    border-radius: 16px; background: #2d4a7a; font-size: 14px; word-break: break-all; }
+  .chip button { border: 0; background: rgba(255,255,255,.15); border-radius: 50%;
+    width: 22px; height: 22px; flex: none; font-size: 12px; padding: 0; }
+  .browser { border-radius: 10px; background: #1f1f1f; overflow: hidden; }
+  .crumb { padding: 10px 12px; font-size: 13px; color: #bbb; border-bottom: 1px solid #2a2a2a;
+    word-break: break-all; }
+  .row { display: flex; align-items: center; border-bottom: 1px solid #262626; }
+  .row:last-child { border-bottom: 0; }
+  .row .open { flex: 1; min-width: 0; text-align: left; border: 0; background: none;
+    padding: 12px; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .add { border: 0; background: none; color: #6ea8ff; padding: 12px; font-size: 14px; flex: none; }
+  .row .add:disabled { color: #666; cursor: default; }
+  #drawer footer { padding: 12px 16px; border-top: 1px solid #2a2a2a; }
+  #save { width: 100%; padding: 12px; border: 0; border-radius: 10px; background: #fe2c55;
+    font-size: 16px; font-weight: 600; }
+  #save:disabled { opacity: .5; }
 </style>
 </head>
 <body>
-<div id="bar">
-  <select id="order">
-    <option value="shuffle">🔀 隨機</option>
-    <option value="newest">🆕 最新</option>
-    <option value="oldest">📅 最舊</option>
-  </select>
-  <select id="folder"><option value="">📁 全部資料夾</option></select>
-</div>
 <div id="feed"></div>
+<button id="menu" title="設定">☰</button>
 <div id="side">
   <button id="mute" title="聲音">🔇</button>
   <button id="download" title="下載">⬇️</button>
 </div>
-<div id="empty">找不到影片。<br>請確認 VIDEO_DIR 裡有 mp4 / mov / webm 檔案。</div>
+<div id="empty"></div>
+
+<div id="backdrop"></div>
+<aside id="drawer">
+  <header>設定 <button id="close" title="關閉">✕</button></header>
+  <div class="drawer-body">
+    <h3>播放順序</h3>
+    <select id="order">
+      <option value="shuffle">🔀 隨機</option>
+      <option value="newest">🆕 最新</option>
+      <option value="oldest">📅 最舊</option>
+    </select>
+
+    <h3>影片資料夾</h3>
+    <div class="chips" id="chosen"></div>
+    <p class="hint" id="chosen-hint"></p>
+
+    <h3>瀏覽並加入資料夾</h3>
+    <div class="browser">
+      <div class="crumb" id="crumb"></div>
+      <div id="dirs"></div>
+    </div>
+    <p class="hint">點資料夾名稱進入，按「＋ 加入」選取。子資料夾裡的影片也會一起顯示。</p>
+  </div>
+  <footer><button id="save">儲存</button></footer>
+</aside>
 
 <script>
 const feed = document.getElementById('feed');
 const orderSel = document.getElementById('order');
-const folderSel = document.getElementById('folder');
 const muteBtn = document.getElementById('mute');
 let videos = [];
 let current = -1;
@@ -157,7 +208,10 @@ feed.addEventListener('scroll', () => {
 });
 
 document.addEventListener('keydown', e => {
-  if (e.target.tagName === 'SELECT') return;
+  if (document.body.classList.contains('drawer-open')) {
+    if (e.key === 'Escape') closeDrawer();
+    return;
+  }
   if (e.key === 'ArrowDown' || e.key === 'j') feed.scrollBy({ top: feed.clientHeight, behavior: 'smooth' });
   else if (e.key === 'ArrowUp' || e.key === 'k') feed.scrollBy({ top: -feed.clientHeight, behavior: 'smooth' });
   else if (e.key === ' ') { e.preventDefault(); feed.children[current] && feed.children[current].click(); }
@@ -165,26 +219,135 @@ document.addEventListener('keydown', e => {
 });
 
 async function load() {
-  const params = new URLSearchParams({ order: orderSel.value, folder: folderSel.value });
-  const res = await fetch('/api/videos?' + params);
-  const data = await res.json();
-  videos = data.videos;
-  if (folderSel.options.length === 1) {
-    data.folders.forEach(f => folderSel.add(new Option('📁 ' + f, f)));
-  }
+  const res = await fetch('/api/videos?' + new URLSearchParams({ order: orderSel.value }));
+  videos = (await res.json()).videos;
   pool.forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); });
   feed.replaceChildren(...videos.map(makeSlide));
-  document.getElementById('empty').style.display = videos.length ? 'none' : 'flex';
+  const empty = document.getElementById('empty');
+  empty.innerHTML = '找不到影片。<br>點右上角 ☰ 選擇放影片的資料夾。<br>支援 mp4 / mov / webm。';
+  empty.style.display = videos.length ? 'none' : 'flex';
   current = -1;
   feed.scrollTop = 0;
   activate(0);
 }
 
-orderSel.addEventListener('change', () => {
-  try { localStorage.setItem('shorts-order', orderSel.value); } catch (e) {}
-  load();
-});
-folderSel.addEventListener('change', load);
+// ---- Settings drawer ----
+let chosen = [];
+let browsePath = '';
+let wasPlaying = false;
+const saveBtn = document.getElementById('save');
+
+function renderChosen() {
+  const box = document.getElementById('chosen');
+  box.replaceChildren(...chosen.map(f => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.textContent = '📁 ' + (f || '（全部）');
+    const x = document.createElement('button');
+    x.textContent = '✕';
+    x.title = '移除';
+    x.onclick = () => { chosen = chosen.filter(c => c !== f); renderChosen(); renderDirs(); };
+    chip.append(x);
+    return chip;
+  }));
+  document.getElementById('chosen-hint').textContent = chosen.length
+    ? '只會播放上面這些資料夾裡的影片。'
+    : '尚未選擇，會播放全部資料夾裡的影片。';
+}
+
+let dirList = [];
+async function browse(path) {
+  const res = await fetch('/api/dirs?' + new URLSearchParams({ path }));
+  if (!res.ok) return browse('');
+  const data = await res.json();
+  browsePath = data.path;
+  dirList = data.dirs;
+  renderDirs();
+}
+
+function row(label, onOpen, path) {
+  const r = document.createElement('div');
+  r.className = 'row';
+  const open = document.createElement('button');
+  open.className = 'open';
+  open.textContent = label;
+  open.onclick = onOpen;
+  r.append(open);
+  if (path !== undefined) {
+    const add = document.createElement('button');
+    add.className = 'add';
+    const has = chosen.includes(path);
+    add.textContent = has ? '✓ 已加入' : '＋ 加入';
+    add.disabled = has;
+    add.onclick = () => { chosen.push(path); renderChosen(); renderDirs(); };
+    r.append(add);
+  }
+  return r;
+}
+
+function renderDirs() {
+  document.getElementById('crumb').textContent = '📂 ' + (browsePath ? '/' + browsePath : '/（根目錄）');
+  const rows = [];
+  if (browsePath) {
+    rows.push(row('⬆️ 上一層', () => browse(browsePath.split('/').slice(0, -1).join('/'))));
+    rows.push(row('（這個資料夾）', () => {}, browsePath));
+  }
+  dirList.forEach(d => {
+    const p = browsePath ? browsePath + '/' + d : d;
+    rows.push(row('📁 ' + d, () => browse(p), p));
+  });
+  if (!dirList.length) {
+    const r = document.createElement('div');
+    r.className = 'hint';
+    r.style.padding = '12px';
+    r.textContent = '沒有子資料夾';
+    rows.push(r);
+  }
+  document.getElementById('dirs').replaceChildren(...rows);
+}
+
+async function openDrawer() {
+  const v = pool[current % POOL];
+  wasPlaying = !!(v && !v.paused);
+  if (wasPlaying) v.pause();
+  document.body.classList.add('drawer-open');
+  chosen = (await (await fetch('/api/settings')).json()).folders;
+  renderChosen();
+  browse(browsePath);
+}
+
+function closeDrawer() {
+  document.body.classList.remove('drawer-open');
+  const v = pool[current % POOL];
+  if (wasPlaying && v) v.play();
+}
+
+document.getElementById('menu').onclick = openDrawer;
+document.getElementById('close').onclick = closeDrawer;
+document.getElementById('backdrop').onclick = closeDrawer;
+
+saveBtn.onclick = async () => {
+  saveBtn.disabled = true;
+  saveBtn.textContent = '儲存中…';
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folders: chosen }),
+    });
+    if (!res.ok) throw new Error(res.status);
+    try { localStorage.setItem('shorts-order', orderSel.value); } catch (e) {}
+    wasPlaying = false;
+    closeDrawer();
+    await load();
+  } catch (e) {
+    alert('儲存失敗：' + e.message);
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = '儲存';
+  }
+};
+
 try { orderSel.value = localStorage.getItem('shorts-order') || 'shuffle'; } catch (e) {}
 load();
 </script>

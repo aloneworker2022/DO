@@ -6,8 +6,10 @@ services:
     ports:
       - "8090:8080"
     volumes:
-      # 左邊改成你 NAS 上放影片的資料夾，唯讀掛載
-      - /volume1/video:/videos:ro
+      # 掛整個 volume1（唯讀），再到網頁右上角 ☰ 選要播放的資料夾
+      - /volume1:/videos:ro
+      # 存放設定（選了哪些資料夾），重建容器也不會遺失
+      - ./config:/config
     environment:
       # 想從外網連的話建議設定帳密
       AUTH_USER: ""

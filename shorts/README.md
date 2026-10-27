@@ -3,7 +3,7 @@
 把 Synology NAS 裡的影片變成「抖音 / Reels」那樣，全螢幕、上下一直滑的瀏覽方式。
 
 - 上滑下一部、下滑上一部，自動播放、循環播放
-- 隨機 / 最新 / 最舊排序，可依資料夾篩選
+- 右上角 ☰ 設定：選播放順序（隨機 / 最新 / 最舊），直接在網頁上瀏覽並選擇要播放的資料夾（設定存在 NAS 上，每台裝置共用）
 - 點畫面暫停、點底部進度條跳轉、右側開關聲音與下載
 - 電腦上可用 ↑ ↓（或 j / k）切換、空白鍵暫停、m 靜音
 - 自動略過 Synology 的 `@eaDir`、`#recycle` 等系統資料夾
@@ -14,8 +14,8 @@
 
 1. Container Manager →「專案」→「新增」，路徑選一個空資料夾（例如 `docker/nas-shorts`），
    來源選「建立 docker-compose.yml」。
-2. 把 [`docker-compose.nas.yml`](docker-compose.nas.yml) 的內容整份貼上，只改影片路徑那一行。
-3. 完成後打開 `http://NAS的IP:8090`。
+2. 把 [`docker-compose.nas.yml`](docker-compose.nas.yml) 的內容整份貼上。
+3. 完成後打開 `http://NAS的IP:8090`，點右上角 ☰ 選擇要播放的資料夾，按「儲存」。
 
 每次容器啟動都會從 GitHub 抓最新版，**要更新只要在專案上按「重新啟動」**。
 抓不到（例如 NAS 暫時沒網路）時會繼續用上次下載的版本。
@@ -24,21 +24,22 @@
 
 1. 套件中心安裝 **Container Manager**。
 2. 把這個 `shorts` 資料夾複製到 NAS，例如 `/volume1/docker/nas-shorts`。
-3. 編輯 `docker-compose.yml`，把 `/volume1/video` 改成你放影片的資料夾。
-   - 想看多個資料夾，可以多掛幾行，例如
-     `- /volume1/photo/手機影片:/videos/手機:ro`
+3. `docker-compose.yml` 預設把整個 `/volume1` 唯讀掛進去，之後在網頁右上角 ☰ 選資料夾即可。
+   - 不想讓網頁看到整個 volume1 的資料夾名稱，可以改成只掛特定共用資料夾，例如
+     `- /volume1/video:/videos/video:ro`、`- /volume1/photo:/videos/photo:ro`
 4. Container Manager →「專案」→「新增」→ 路徑選剛才的資料夾 → 會自動讀到 `docker-compose.yml` → 建置並啟動。
 5. 手機瀏覽器打開 `http://NAS的IP:8090`。
    - iPhone：Safari「分享」→「加入主畫面」，就會像 App 一樣全螢幕開啟。
 
 不想用 Docker 也可以：DSM 上只要有 Python 3，直接
-`VIDEO_DIR=/volume1/video PORT=8090 python3 server.py`。
+`VIDEO_DIR=/volume1 SETTINGS_FILE=./config/settings.json PORT=8090 python3 server.py`。
 
 ## 設定
 
 | 環境變數 | 預設 | 說明 |
 | --- | --- | --- |
-| `VIDEO_DIR` | `/videos` | 要掃描的影片資料夾（含子資料夾） |
+| `VIDEO_DIR` | `/videos` | 根目錄，設定頁只能選這底下的資料夾 |
+| `SETTINGS_FILE` | `/config/settings.json` | 選好的資料夾存在這裡 |
 | `PORT` | `8080` | 容器內的埠號 |
 | `AUTH_USER` / `AUTH_PASS` | 空 | 設定後需要帳密才能看 |
 
