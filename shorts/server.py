@@ -4,11 +4,13 @@ Only uses the Python standard library. Configure with environment variables:
   VIDEO_DIR      root folder; the settings page can pick folders under it (default /videos)
   PORT           listen port (default 8080)
   SETTINGS_FILE  where the chosen folders are saved (default /config/settings.json)
+  LIKES_FILE     where heart counts are saved (default /config/likes.json)
   AUTH_USER / AUTH_PASS   optional HTTP basic auth
 """
 import base64
 import hmac
 import json
+import re
 import mimetypes
 import os
 import random
@@ -20,6 +22,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 VIDEO_DIR = os.path.realpath(os.environ.get("VIDEO_DIR", "/videos"))
 PORT = int(os.environ.get("PORT", "8080"))
 SETTINGS_FILE = os.environ.get("SETTINGS_FILE", "/config/settings.json")
+LIKES_FILE = os.environ.get("LIKES_FILE", "/config/likes.json")
 AUTH_USER = os.environ.get("AUTH_USER", "")
 AUTH_PASS = os.environ.get("AUTH_PASS", "")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -37,6 +40,8 @@ mimetypes.add_type("video/webm", ".webm")
 
 _cache = {"time": 0.0, "videos": []}
 _cache_lock = threading.Lock()
+_likes_lock = threading.Lock()
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def skip_dir(name):
@@ -73,14 +78,44 @@ def load_settings():
     return {"folders": clean_folders(data.get("folders"))}
 
 
-def save_settings(settings):
-    os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
-    tmp = SETTINGS_FILE + ".tmp"
+def write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(settings, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, SETTINGS_FILE)
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
+def save_settings(settings):
+    write_json(SETTINGS_FILE, settings)
     with _cache_lock:
         _cache["time"] = 0.0
+
+
+def load_likes():
+    """{video path: {"hearts": int, "last_vote": "YYYY-MM-DD"}}"""
+    try:
+        with open(LIKES_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def vote(rel, delta, date):
+    """Add delta hearts to a video, at most once per video per day.
+
+    Returns (accepted, entry); entry is left unchanged when already voted on date.
+    """
+    with _likes_lock:
+        likes = load_likes()
+        entry = likes.get(rel) or {"hearts": 0, "last_vote": ""}
+        if entry.get("last_vote") == date:
+            return False, entry
+        entry = {"hearts": int(entry.get("hearts", 0)) + delta, "last_vote": date}
+        likes[rel] = entry
+        write_json(LIKES_FILE, likes)
+        return True, entry
 
 
 def in_folders(rel, folders):
@@ -171,7 +206,8 @@ class Handler(SimpleHTTPRequestHandler):
     def do_POST(self):
         if not self.authorized():
             return
-        if urllib.parse.urlsplit(self.path).path != "/api/settings":
+        path = urllib.parse.urlsplit(self.path).path
+        if path not in ("/api/settings", "/api/vote"):
             self.send_error(404)
             return
         length = int(self.headers.get("Content-Length") or 0)
@@ -185,6 +221,9 @@ class Handler(SimpleHTTPRequestHandler):
         if not isinstance(data, dict):
             self.send_error(400)
             return
+        if path == "/api/vote":
+            self.handle_vote(data)
+            return
         settings = {"folders": clean_folders(data.get("folders"))}
         try:
             save_settings(settings)
@@ -193,9 +232,23 @@ class Handler(SimpleHTTPRequestHandler):
             return
         self.send_json(settings)
 
-    def send_json(self, data):
+    def handle_vote(self, data):
+        rel, delta, date = data.get("path"), data.get("delta"), data.get("date")
+        full = resolve_video(rel) if isinstance(rel, str) else None
+        if not full or delta not in (1, -1) or not isinstance(date, str) or not DATE_RE.match(date):
+            self.send_error(400)
+            return
+        rel = os.path.relpath(full, VIDEO_DIR).replace(os.sep, "/")
+        try:
+            accepted, entry = vote(rel, delta, date)
+        except OSError as e:
+            self.send_error(500, f"Cannot save hearts: {e}")
+            return
+        self.send_json({"accepted": accepted, **entry}, 200 if accepted else 409)
+
+    def send_json(self, data, status=200):
         body = json.dumps(data, ensure_ascii=False).encode()
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
@@ -203,12 +256,17 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_video_list(self, query):
-        videos = scan_videos()
+        likes = load_likes()
+        videos = [{**v, "hearts": likes.get(v["path"], {}).get("hearts", 0),
+                   "last_vote": likes.get(v["path"], {}).get("last_vote", "")}
+                  for v in scan_videos()]
         order = query.get("order", ["shuffle"])[0]
         if order == "shuffle":
             videos = random.sample(videos, len(videos))
         elif order == "oldest":
             videos = videos[::-1]
+        elif order == "hearts":
+            videos.sort(key=lambda v: v["hearts"], reverse=True)
         self.send_json({"videos": videos})
 
     def send_dirs(self, rel):

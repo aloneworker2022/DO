@@ -16,7 +16,11 @@
     overscroll-behavior: contain; scrollbar-width: none; }
   #feed::-webkit-scrollbar { display: none; }
   .slide { position: relative; height: 100dvh; scroll-snap-align: start; scroll-snap-stop: always;
-    display: flex; align-items: center; justify-content: center; background: #000; }
+    display: flex; align-items: center; justify-content: center; background: #000; touch-action: pan-y; }
+  .swipe { position: absolute; top: 40%; font-size: 96px; opacity: 0; pointer-events: none;
+    filter: drop-shadow(0 2px 8px rgba(0,0,0,.6)); }
+  .swipe.like { left: 12%; }
+  .swipe.nope { right: 12%; }
   .slide video { width: 100%; height: 100%; object-fit: contain; background: #000; }
   .info { position: absolute; left: 16px; right: 72px; bottom: calc(28px + env(safe-area-inset-bottom));
     text-shadow: 0 1px 3px rgba(0,0,0,.8); pointer-events: none; }
@@ -30,6 +34,16 @@
   #menu { position: fixed; top: calc(12px + env(safe-area-inset-top)); right: 12px; z-index: 10;
     width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(0,0,0,.35);
     font-size: 24px; line-height: 44px; }
+  #hearts { position: fixed; top: calc(12px + env(safe-area-inset-top)); right: 64px; z-index: 10;
+    height: 44px; padding: 0 14px; border-radius: 22px; background: rgba(0,0,0,.35);
+    display: flex; align-items: center; gap: 6px; font-size: 17px; font-weight: 600; }
+  #hearts.voted { background: rgba(254,44,85,.55); }
+  #hearts.pop { animation: pop .35s; }
+  @keyframes pop { 50% { transform: scale(1.25); } }
+  #toast { position: fixed; left: 50%; top: 22%; z-index: 15; transform: translateX(-50%);
+    padding: 10px 18px; border-radius: 20px; background: rgba(0,0,0,.75); font-size: 16px;
+    white-space: nowrap; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
   #side { position: fixed; right: 12px; bottom: calc(90px + env(safe-area-inset-bottom)); z-index: 10;
     display: flex; flex-direction: column; gap: 14px; }
   #side button { width: 48px; height: 48px; border-radius: 50%; border: 0; font-size: 22px;
@@ -75,7 +89,9 @@
 </head>
 <body>
 <div id="feed"></div>
+<div id="hearts" title="這部影片的愛心數">❤️ <span>0</span></div>
 <button id="menu" title="設定">☰</button>
+<div id="toast"></div>
 <div id="side">
   <button id="mute" title="聲音">🔇</button>
   <button id="download" title="下載">⬇️</button>
@@ -91,6 +107,7 @@
       <option value="shuffle">🔀 隨機</option>
       <option value="newest">🆕 最新</option>
       <option value="oldest">📅 最舊</option>
+      <option value="hearts">❤️ 愛心最多</option>
     </select>
 
     <h3>影片資料夾</h3>
@@ -103,6 +120,10 @@
       <div id="dirs"></div>
     </div>
     <p class="hint">點資料夾名稱進入，按「＋ 加入」選取。子資料夾裡的影片也會一起顯示。</p>
+
+    <h3>操作方式</h3>
+    <p class="hint">上下滑：換影片<br>往右滑：喜歡（❤️ +1）並看下一部<br>往左滑：不喜歡（❤️ −1）並看下一部<br>
+      同一部影片每天只能評一次。電腦上可用 ← → 鍵。</p>
   </div>
   <footer><button id="save">儲存</button></footer>
 </aside>
@@ -137,13 +158,14 @@ function makeSlide(item, i) {
   const s = document.createElement('section');
   s.className = 'slide';
   s.dataset.index = i;
-  s.innerHTML = '<div class="paused-icon">▶</div><div class="info"><div class="name"></div>' +
+  s.innerHTML = '<div class="paused-icon">▶</div><div class="swipe like">❤️</div><div class="swipe nope">💔</div>' +
+    '<div class="info"><div class="name"></div>' +
     '<div class="folder"></div></div><div class="progress"><div></div></div>';
   s.querySelector('.name').textContent = item.name;
   s.querySelector('.folder').textContent = item.folder ? '📁 ' + item.folder : '';
   s.addEventListener('click', e => {
     const v = s.querySelector('video');
-    if (!v) return;
+    if (!v || Date.now() < suppressClickUntil) return;
     if (e.target.closest('.progress')) {
       const r = s.getBoundingClientRect();
       if (v.duration) v.currentTime = (e.clientX - r.left) / r.width * v.duration;
@@ -175,6 +197,7 @@ function activate(i) {
   const v = pool[i % POOL];
   const slide = feed.children[i];
   slide.classList.remove('paused');
+  updateHearts();
   v.currentTime = 0;
   v.muted = muted;
   v.play().catch(() => {
@@ -212,11 +235,124 @@ document.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeDrawer();
     return;
   }
-  if (e.key === 'ArrowDown' || e.key === 'j') feed.scrollBy({ top: feed.clientHeight, behavior: 'smooth' });
+  if (e.key === 'ArrowRight') rate(1);
+  else if (e.key === 'ArrowLeft') rate(-1);
+  else if (e.key === 'ArrowDown' || e.key === 'j') feed.scrollBy({ top: feed.clientHeight, behavior: 'smooth' });
   else if (e.key === 'ArrowUp' || e.key === 'k') feed.scrollBy({ top: -feed.clientHeight, behavior: 'smooth' });
   else if (e.key === ' ') { e.preventDefault(); feed.children[current] && feed.children[current].click(); }
   else if (e.key === 'm') muteBtn.click();
 });
+
+// ---- Hearts: swipe right = like, swipe left = dislike, then go to the next video ----
+const heartsEl = document.getElementById('hearts');
+const toastEl = document.getElementById('toast');
+let suppressClickUntil = 0;
+let toastTimer;
+
+function today() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function toast(msg, ms = 1500) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
+}
+
+function updateHearts(pop) {
+  const item = videos[current];
+  heartsEl.style.display = item ? '' : 'none';
+  if (!item) return;
+  heartsEl.querySelector('span').textContent = item.hearts;
+  heartsEl.classList.toggle('voted', item.last_vote === today());
+  if (pop) { heartsEl.classList.remove('pop'); void heartsEl.offsetWidth; heartsEl.classList.add('pop'); }
+}
+
+function setDrag(slide, dx, animate) {
+  slide.style.transition = animate ? 'transform .25s ease-out' : 'none';
+  slide.style.transform = dx ? `translateX(${dx}px) rotate(${dx / 25}deg)` : '';
+  const k = Math.min(Math.abs(dx) / (feed.clientWidth * 0.25), 1);
+  slide.querySelector('.like').style.opacity = dx > 0 ? k : 0;
+  slide.querySelector('.nope').style.opacity = dx < 0 ? k : 0;
+}
+
+async function sendVote(item, delta) {
+  const date = today();
+  if (item.last_vote === date) return toast('今天已經評過這部了');
+  try {
+    const res = await fetch('/api/vote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: item.path, delta, date }),
+    });
+    if (res.status !== 200 && res.status !== 409) throw new Error(res.status);
+    const data = await res.json();
+    item.hearts = data.hearts;
+    item.last_vote = data.last_vote;
+    toast(data.accepted ? `${delta > 0 ? '❤️ +1' : '💔 −1'}　共 ${data.hearts} 顆` : '今天已經評過這部了');
+  } catch (e) {
+    toast('沒有記錄到，請檢查連線');
+  }
+  updateHearts(true);
+}
+
+let flying = false;
+function rate(delta) {
+  const i = current;
+  const item = videos[i];
+  const slide = feed.children[i];
+  if (!item || !slide || flying) return;
+  flying = true;
+  sendVote(item, delta);
+  const w = feed.clientWidth;
+  setDrag(slide, delta * w * 1.3, true);
+  setTimeout(() => {
+    if (i + 1 < videos.length) {
+      feed.scrollTo({ top: (i + 1) * feed.clientHeight, behavior: 'instant' });
+    } else {
+      toast('已經是最後一部了');
+    }
+    setDrag(slide, 0, false);
+    flying = false;
+  }, 250);
+}
+
+let drag = null;
+feed.addEventListener('pointerdown', e => {
+  const slide = e.target.closest('.slide');
+  if (!slide || e.button > 0 || e.target.closest('.progress')) return;
+  drag = { slide, id: e.pointerId, x: e.clientX, y: e.clientY, dx: 0, horiz: null };
+});
+feed.addEventListener('pointermove', e => {
+  if (!drag || e.pointerId !== drag.id) return;
+  const dx = e.clientX - drag.x;
+  const dy = e.clientY - drag.y;
+  if (drag.horiz === null) {
+    if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+    drag.horiz = Math.abs(dx) > Math.abs(dy);
+    if (!drag.horiz) { drag = null; return; }
+    // Keep receiving the release even if the pointer leaves the page.
+    try { feed.setPointerCapture(e.pointerId); } catch (err) {}
+  }
+  drag.dx = dx;
+  setDrag(drag.slide, dx, false);
+});
+function endDrag(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  const { slide, dx, horiz } = drag;
+  drag = null;
+  if (!horiz) return;
+  suppressClickUntil = Date.now() + 400;
+  if (e.type === 'pointerup' && Math.abs(dx) > feed.clientWidth * 0.25 && slide === feed.children[current]) {
+    rate(dx > 0 ? 1 : -1);
+  } else {
+    setDrag(slide, 0, true);
+  }
+}
+feed.addEventListener('pointerup', endDrag);
+feed.addEventListener('pointercancel', endDrag);
 
 async function load() {
   const res = await fetch('/api/videos?' + new URLSearchParams({ order: orderSel.value }));
@@ -229,6 +365,7 @@ async function load() {
   current = -1;
   feed.scrollTop = 0;
   activate(0);
+  updateHearts();
 }
 
 // ---- Settings drawer ----
@@ -350,6 +487,12 @@ saveBtn.onclick = async () => {
 
 try { orderSel.value = localStorage.getItem('shorts-order') || 'shuffle'; } catch (e) {}
 load();
+try {
+  if (!localStorage.getItem('shorts-swipe-tip')) {
+    setTimeout(() => toast('👈 不喜歡　　喜歡 👉', 3000), 800);
+    localStorage.setItem('shorts-swipe-tip', '1');
+  }
+} catch (e) {}
 </script>
 </body>
 </html>
