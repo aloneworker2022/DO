@@ -65,7 +65,7 @@
   .drawer-body { flex: 1; overflow-y: auto; padding: 8px 16px 16px; }
   .drawer-body h3 { font-size: 13px; font-weight: 600; color: #9a9a9a; margin: 18px 0 8px; }
   .hint { font-size: 13px; color: #8a8a8a; margin: 6px 0; line-height: 1.5; }
-  #order { width: 100%; padding: 10px; border-radius: 8px; border: 0; background: #262626;
+  #order, #fit { width: 100%; padding: 10px; border-radius: 8px; border: 0; background: #262626;
     color: #fff; font-size: 15px; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 6px 6px 12px;
@@ -111,6 +111,13 @@
       <option value="unpopular">💔 最不受歡迎（愛心 ≤ 0，少的先播）</option>
     </select>
 
+    <h3>畫面顯示（只影響這台裝置）</h3>
+    <select id="fit">
+      <option value="cover">📱 填滿手機螢幕（會裁切畫面邊緣）</option>
+      <option value="auto">🔄 自動（直式影片填滿，橫式完整顯示）</option>
+      <option value="contain">🖼️ 完整顯示（可能有黑邊）</option>
+    </select>
+
     <h3>影片資料夾</h3>
     <div class="chips" id="chosen"></div>
     <p class="hint" id="chosen-hint"></p>
@@ -132,6 +139,9 @@
 <script>
 const feed = document.getElementById('feed');
 const orderSel = document.getElementById('order');
+const fitSel = document.getElementById('fit');
+const isPhone = matchMedia('(hover: none) and (pointer: coarse)').matches &&
+  Math.min(screen.width, screen.height) < 600;
 const muteBtn = document.getElementById('mute');
 let videos = [];
 let current = -1;
@@ -146,6 +156,7 @@ const pool = Array.from({ length: POOL }, () => {
   v.loop = true;
   v.preload = 'auto';
   v.muted = true;
+  v.addEventListener('loadedmetadata', () => applyFit(v));
   v.addEventListener('timeupdate', () => {
     const bar = v.parentElement && v.parentElement.querySelector('.progress div');
     if (bar && v.duration) bar.style.width = (v.currentTime / v.duration * 100) + '%';
@@ -189,6 +200,24 @@ function attach(i) {
     slide.querySelector('.progress div').style.width = '0';
   }
 }
+
+// How a video fills the screen: crop to fill, show whole, or crop only when little is lost.
+function applyFit(v) {
+  let fit = fitSel.value;
+  if (fit === 'auto') {
+    const va = v.videoWidth / v.videoHeight;
+    const sa = feed.clientWidth / feed.clientHeight;
+    // Fill when cropping would keep at least 75% of the picture (e.g. portrait clips on a phone).
+    fit = va && Math.min(va, sa) / Math.max(va, sa) >= 0.75 ? 'cover' : 'contain';
+  }
+  v.style.objectFit = fit;
+}
+
+fitSel.addEventListener('change', () => {
+  try { localStorage.setItem('shorts-fit', fitSel.value); } catch (e) {}
+  pool.forEach(applyFit);
+});
+addEventListener('resize', () => pool.forEach(applyFit));
 
 function activate(i) {
   if (i === current || i < 0 || i >= videos.length) return;
@@ -490,6 +519,8 @@ saveBtn.onclick = async () => {
 
 try { orderSel.value = localStorage.getItem('shorts-order') || 'shuffle'; } catch (e) {}
 if (orderSel.value === '') orderSel.value = 'shuffle';
+try { fitSel.value = localStorage.getItem('shorts-fit') || ''; } catch (e) {}
+if (fitSel.value === '') fitSel.value = isPhone ? 'cover' : 'contain';
 load();
 try {
   if (!localStorage.getItem('shorts-swipe-tip')) {
