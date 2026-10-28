@@ -265,8 +265,14 @@ class Handler(SimpleHTTPRequestHandler):
             videos = random.sample(videos, len(videos))
         elif order == "oldest":
             videos = videos[::-1]
-        elif order == "hearts":
+        elif order in ("popular", "hearts"):
+            # Most hearts first, down to 0; ties play in random order.
+            videos = [v for v in random.sample(videos, len(videos)) if v["hearts"] >= 0]
             videos.sort(key=lambda v: v["hearts"], reverse=True)
+        elif order == "unpopular":
+            # Fewest hearts first, up to 0; ties play in random order.
+            videos = [v for v in random.sample(videos, len(videos)) if v["hearts"] <= 0]
+            videos.sort(key=lambda v: v["hearts"])
         self.send_json({"videos": videos})
 
     def send_dirs(self, rel):

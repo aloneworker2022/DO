@@ -107,7 +107,8 @@
       <option value="shuffle">🔀 隨機</option>
       <option value="newest">🆕 最新</option>
       <option value="oldest">📅 最舊</option>
-      <option value="hearts">❤️ 愛心最多</option>
+      <option value="popular">❤️ 最受歡迎（愛心 ≥ 0，多的先播）</option>
+      <option value="unpopular">💔 最不受歡迎（愛心 ≤ 0，少的先播）</option>
     </select>
 
     <h3>影片資料夾</h3>
@@ -360,7 +361,9 @@ async function load() {
   pool.forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); });
   feed.replaceChildren(...videos.map(makeSlide));
   const empty = document.getElementById('empty');
-  empty.innerHTML = '找不到影片。<br>點右上角 ☰ 選擇放影片的資料夾。<br>支援 mp4 / mov / webm。';
+  empty.innerHTML = /popular/.test(orderSel.value)
+    ? '沒有符合這個排序的影片。<br>點右上角 ☰ 換一個播放順序。'
+    : '找不到影片。<br>點右上角 ☰ 選擇放影片的資料夾。<br>支援 mp4 / mov / webm。';
   empty.style.display = videos.length ? 'none' : 'flex';
   current = -1;
   feed.scrollTop = 0;
@@ -486,6 +489,7 @@ saveBtn.onclick = async () => {
 };
 
 try { orderSel.value = localStorage.getItem('shorts-order') || 'shuffle'; } catch (e) {}
+if (orderSel.value === '') orderSel.value = 'shuffle';
 load();
 try {
   if (!localStorage.getItem('shorts-swipe-tip')) {
